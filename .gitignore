@@ -1,0 +1,13 @@
+node_modules/
+build/
+.env
+.DS_Store
+.idea
+dist
+package-lock.json
+.vscode/
+xox-dev-local.json
+yarn-error.log
+mongo-data
+.env.example
+.env.local
