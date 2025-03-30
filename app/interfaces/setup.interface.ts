@@ -4,6 +4,5 @@ export interface SetupInterface {
   _db: DB;
   rpc: string;
   devnet: boolean;
-  heliusKey: string;
 }
 
