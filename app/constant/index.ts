@@ -1,8 +1,9 @@
 export enum CampaignEvent {
   claimedFundEvent = 'claimedFundEvent',
   claimedTokenEvent = 'claimedTokenEvent',
-  createdAndBoughtTokenEvent = 'createdAndBoughtTokenEvent',
+  createdCampaignTokenEvent = 'createdCampaignTokenEvent',
   createdCampaignEvent = 'createdCampaignEvent',
-  sellTokenEvent = 'sellTokenEvent',
-  updatedClaimableTokenAmountEvent = 'updatedClaimableTokenAmountEvent',
+  soldCampaignTokenEvent = 'soldCampaignTokenEvent',
+  claimableTokenAmountUpdatedEvent = 'claimableTokenAmountUpdatedEvent',
+  donatedFundEvent = 'donatedFundEvent',
 }

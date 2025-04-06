@@ -283,20 +283,23 @@ export default class CampaignService {
         if (event.name === CampaignEvent.createdCampaignEvent) {
           await this.handleCreatedCampaignEvent(event.data, transactionSession);
         }
-        if (event.name === CampaignEvent.createdAndBoughtTokenEvent) {
-          await this.handleCreatedAndBoughtTokenEvent(event.data, transactionSession);
+        if (event.name === CampaignEvent.createdCampaignTokenEvent) {
+          await this.handleCreatedCampaignTokenEvent(event.data, transactionSession);
         }
-        if (event.name === CampaignEvent.sellTokenEvent) {
-          await this.handleSellTokenEvent(event.data, transactionSession);
+        if (event.name === CampaignEvent.soldCampaignTokenEvent) {
+          await this.handleSoldCampaignTokenEvent(event.data, transactionSession);
         }
-        if (event.name === CampaignEvent.updatedClaimableTokenAmountEvent) {
-          await this.handleUpdatedClaimableTokenAmountEvent(event.data, transactionSession);
+        if (event.name === CampaignEvent.claimableTokenAmountUpdatedEvent) {
+          await this.handleClaimableTokenAmountUpdatedEvent(event.data, transactionSession);
         }
         if (event.name === CampaignEvent.claimedTokenEvent) {
           await this.handleClaimedTokenEvent(event.data, transactionSession);
         }
         if (event.name === CampaignEvent.claimedFundEvent) {
           await this.handleClaimedFundEvent(event.data, transactionSession);
+        }
+        if (event.name === CampaignEvent.donatedFundEvent) {
+          await this.handleDonatedFundEvent(event.data, transactionSession);
         }
       }
       await newTransaction.save({ session: transactionSession });
@@ -330,6 +333,8 @@ export default class CampaignService {
       [Buffer.from("campaign"), creatorAddress.toBuffer(), Buffer.from(data.campaignIndex.toArray("le", 8))],
       new PublicKey(this.PROGRAM_ID)
     );
+
+    
 
     // Fetch Campaign Account Info
     const campaignInfo = await this.connection.getAccountInfo(campaignPDA);
@@ -430,7 +435,7 @@ export default class CampaignService {
     }
   }
   
-  async handleCreatedAndBoughtTokenEvent(data: any, session) {
+  async handleCreatedCampaignTokenEvent(data: any, session) {
     try {
       const campaign = await this.campaignModel.findOne({
         creator: data.creator.toString(),
@@ -470,7 +475,7 @@ export default class CampaignService {
     }
   }
 
-  async handleSellTokenEvent(data: any, transactionSession: any) {
+  async handleSoldCampaignTokenEvent(data: any, transactionSession: any) {
     try {
       // Delete from all relevant schemas
       await Promise.all([
@@ -572,7 +577,7 @@ export default class CampaignService {
     }
   }
 
-  async handleUpdatedClaimableTokenAmountEvent(data: any, transactionSession: any) {
+  async handleClaimableTokenAmountUpdatedEvent(data: any, transactionSession: any) {
     try {
       const campaign = await this.campaignModel.findOne({
         creator: data.creator.toString(),
@@ -634,6 +639,43 @@ export default class CampaignService {
       );
     } catch (error) {
       console.error('Error handling claimed token event:', error);
+      throw error;
+    }
+  }
+
+  async handleDonatedFundEvent(data: any, session) {
+    try {
+      // Convert campaign_index and donated_amount to proper numbers
+      const campaignIndex = Number(data.campaign_index.toString());
+      const donatedAmount = Number(data.donated_amount.toString());
+      const timestamp = data.timestamp.toString();
+      
+      console.log(`Processing donation of ${donatedAmount / 1e9} SOL to campaign ${campaignIndex}`);
+      
+      // Find the campaign by campaignIndex
+      const campaign = await this.campaignModel.findOne({ campaignIndex });
+      
+      if (!campaign) {
+        console.log(`Campaign with index ${campaignIndex} not found`);
+        return;
+      }
+      
+      // Update the campaign's totalFundRaised field
+      const updatedCampaign = await this.campaignModel.findOneAndUpdate(
+        { campaignIndex },
+        { 
+          $inc: { totalFundRaised: donatedAmount },
+          $set: { lastDonationTimestamp: timestamp }
+        },
+        { new: true, session }
+      );
+      
+      console.log(`Updated campaign ${campaignIndex} - new total fund raised: ${updatedCampaign.totalFundRaised / 1e9} SOL`);
+      
+      // Check and update campaign status after donation
+      await this.checkAndUpdateCampaignStatus(updatedCampaign, session);
+    } catch (error) {
+      console.error('Error handling donated fund event:', error);
       throw error;
     }
   }

@@ -10,6 +10,9 @@ export interface ICampaign extends Document {
   depositDeadline: number;
   tradeDeadline: number;
   timestamp: number;
+  totalFundRaised: number;
+  mint?: string;
+  lastDonationTimestamp?: string;
 }
 
 class CampaignSchema {
@@ -29,7 +32,10 @@ class CampaignSchema {
           donationGoal: { type: Number, required: false },
           depositDeadline: { type: Number, required: false },
           tradeDeadline: { type: Number, required: false },
-          timestamp: { type: Number, required: false }
+          timestamp: { type: Number, required: false },
+          totalFundRaised: { type: Number, required: false, default: 0 },
+          mint: { type: String, required: false },
+          lastDonationTimestamp: { type: String, required: false }
         },
         { timestamps: true }
       );
