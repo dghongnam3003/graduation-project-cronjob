@@ -9,5 +9,4 @@ package-lock.json
 xox-dev-local.json
 yarn-error.log
 mongo-data
-.env.example
 .env.local
