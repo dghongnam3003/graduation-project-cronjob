@@ -138,11 +138,12 @@ export default class CampaignFundService {
         continue;
       }
 
-      // Get current on-chain state
+      // Get current on-chain state - ensure consistent PDA derivation
+      const campaignIndexBN = new BN(campaign.campaignIndex);
       const [campaignPDA] = PublicKey.findProgramAddressSync(
         [Buffer.from("campaign"), 
          new PublicKey(campaign.creator).toBuffer(), 
-         Buffer.from(new BN(campaign.campaignIndex).toArray("le", 8))],
+         Buffer.from(campaignIndexBN.toArray("le", 8))],
         new PublicKey(this.PROGRAM_ID)
       );
   
@@ -173,11 +174,13 @@ export default class CampaignFundService {
       return;
     }
 
+    // Ensure consistent PDA derivation
+    const campaignIndexBN = new BN(campaign.campaignIndex);
     const [campaignPDA] = PublicKey.findProgramAddressSync(
       [
         Buffer.from("campaign"),
         new PublicKey(campaign.creator).toBuffer(),
-        Buffer.from(new BN(campaign.campaignIndex).toArray("le", 8))
+        Buffer.from(campaignIndexBN.toArray("le", 8))
       ],
       new PublicKey(this.PROGRAM_ID)
     );
@@ -204,28 +207,29 @@ export default class CampaignFundService {
     try {
       const campaigns = await this.campaignModel.find();
       
-      for (const campaign of campaigns) {
-        // Check COMPLETED status first
-        const processRecord = await this.addTokenPumpProcessModel.findOne({
-          creator: campaign.creator,
-          campaignIndex: campaign.campaignIndex,
-        });
+      for (const campaign of campaigns) {      // Check COMPLETED status first
+      const processRecord = await this.addTokenPumpProcessModel.findOne({
+        creator: campaign.creator,
+        campaignIndex: campaign.campaignIndex,
+      });
 
-        if (processRecord?.status === AddTokenProcessStatus.COMPLETED) {
-          console.log(`Campaign ${campaign.campaignIndex} is COMPLETED - skipping deletion`);
-          continue;
-        }
+      if (processRecord?.status === AddTokenProcessStatus.COMPLETED) {
+        console.log(`Campaign ${campaign.campaignIndex} is COMPLETED - skipping deletion`);
+        continue;
+      }
 
-        const [campaignPDA] = PublicKey.findProgramAddressSync(
-          [
-            Buffer.from("campaign"), 
-            new PublicKey(campaign.creator).toBuffer(), 
-            Buffer.from(new BN(campaign.campaignIndex).toArray("le", 8))
-          ],
-          new PublicKey(this.PROGRAM_ID)
-        );
-        const campaignInfo = await this.connection.getAccountInfo(campaignPDA);
-        if (!campaignInfo) continue;
+      // Ensure consistent PDA derivation
+      const campaignIndexBN = new BN(campaign.campaignIndex);
+      const [campaignPDA] = PublicKey.findProgramAddressSync(
+        [
+          Buffer.from("campaign"), 
+          new PublicKey(campaign.creator).toBuffer(), 
+          Buffer.from(campaignIndexBN.toArray("le", 8))
+        ],
+        new PublicKey(this.PROGRAM_ID)
+      );
+      const campaignInfo = await this.connection.getAccountInfo(campaignPDA);
+      if (!campaignInfo) continue;
 
         const minimumRentExemption = await this.connection.getMinimumBalanceForRentExemption(campaignInfo.data.length);
         const currentFunds = campaignInfo.lamports - minimumRentExemption;
