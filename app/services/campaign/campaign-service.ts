@@ -317,13 +317,12 @@ export default class CampaignService {
   }
 
   async handleCreatedCampaignEvent(data: any, session) {
-    // IMPORTANT: Smart contract uses 0-based indexing, but events contain 1-based indexing
-    // So we need to subtract 1 from the event campaignIndex to get the actual PDA
-    const actualCampaignIndex = Number(data.campaignIndex.toString()) - 1;
+    // Parse campaign index from hex string - database stores 1-based indexing
+    const campaignIndex = parseInt(data.campaignIndex.toString(), 16);
 
     const campaign = new this.campaignModel();
     campaign.creator = data.creator.toString();
-    campaign.campaignIndex = actualCampaignIndex; // Store the actual 0-based index
+    campaign.campaignIndex = campaignIndex; // Store the 1-based index directly
     campaign.name = data.name.toString();
     campaign.symbol = data.symbol.toString();
     campaign.uri = data.uri.toString();
@@ -333,14 +332,15 @@ export default class CampaignService {
     campaign.timestamp = data.timestamp.toString();
     campaign.mint = data.mint;
     
-    /// Derive Campaign PDA
+    /// Derive Campaign PDA - smart contract uses 0-based indexing for PDA
     const creatorAddress = new PublicKey(data.creator);
     
-    // Use the actualCampaignIndex already calculated above
-    const campaignIndexBN = new BN(actualCampaignIndex);
+    // For PDA derivation, use 0-based index (subtract 1 from database index)
+    const pdaCampaignIndex = campaignIndex - 1;
+    const campaignIndexBN = new BN(pdaCampaignIndex);
     const campaignIndexBuffer = Buffer.from(campaignIndexBN.toArray("le", 8));
     
-    console.log(`Deriving PDA for creator: ${data.creator.toString()}, event campaignIndex: ${data.campaignIndex.toString()}, actual index: ${actualCampaignIndex}`);
+    console.log(`Deriving PDA for creator: ${data.creator.toString()}, event campaignIndex: ${data.campaignIndex.toString()}, database index: ${campaignIndex}, PDA index: ${pdaCampaignIndex}`);
     
     const [campaignPDA, _] = PublicKey.findProgramAddressSync(
       [Buffer.from("campaign"), creatorAddress.toBuffer(), campaignIndexBuffer],
@@ -352,7 +352,7 @@ export default class CampaignService {
     // Fetch Campaign Account Info
     const campaignInfo = await this.connection.getAccountInfo(campaignPDA);
     if (!campaignInfo) {
-      throw new Error(`Campaign account not found for PDA: ${campaignPDA.toString()}. Creator: ${data.creator.toString()}, Event Index: ${data.campaignIndex.toString()}, Actual Index: ${actualCampaignIndex}`);
+      throw new Error(`Campaign account not found for PDA: ${campaignPDA.toString()}. Creator: ${data.creator.toString()}, Event Index: ${data.campaignIndex.toString()}, Database Index: ${campaignIndex}, PDA Index: ${pdaCampaignIndex}`);
     }
 
     // Calculate Total Fund Raised
@@ -365,13 +365,13 @@ export default class CampaignService {
   }
 
   async handleClaimedFundEvent(data: any, transactionSession: any) {
-    // Convert 1-based event index to 0-based database index
-    const actualCampaignIndex = Number(data.campaignIndex.toString()) - 1;
+    // Parse campaign index from hex string - database uses 1-based indexing
+    const campaignIndex = parseInt(data.campaignIndex.toString(), 16);
     
     await this.campaignModel.findOneAndUpdate(
       {
         creator: data.creator.toString(),
-        campaignIndex: actualCampaignIndex,
+        campaignIndex: campaignIndex,
       },
       {
         totalFundRaised: 0,
@@ -457,18 +457,20 @@ export default class CampaignService {
       // Debug: Log the received data structure
       console.log('CreatedCampaignTokenEvent data:', JSON.stringify(data, null, 2));
       
-      // Convert 1-based event index to 0-based database index
-      const actualCampaignIndex = Number(data.campaignIndex.toString()) - 1;
+      // Parse campaign index from hex string (this gives us the database campaign index directly)
+      const campaignIndex = parseInt(data.campaignIndex.toString(), 16);
       
-      console.log(`Searching for campaign - creator: ${data.creator.toString()}, actualCampaignIndex: ${actualCampaignIndex}`);
+      console.log(`Event campaignIndex (hex): ${data.campaignIndex.toString()}, parsed (decimal): ${campaignIndex}`);
+      console.log(`Searching for campaign - creator: ${data.creator.toString()}, campaignIndex: ${campaignIndex}`);
       
-      const campaign = await this.campaignModel.findOne({
+      // Try to find campaign with the parsed index
+      let campaign = await this.campaignModel.findOne({
         creator: data.creator.toString(),
-        campaignIndex: actualCampaignIndex,
+        campaignIndex: campaignIndex,
       });
     
       if (!campaign) {
-        console.log(`Campaign not found for creator: ${data.creator.toString()}, campaignIndex: ${actualCampaignIndex}`);
+        console.log(`Campaign not found for creator: ${data.creator.toString()}, campaignIndex: ${campaignIndex}`);
         
         // Debug: Let's see what campaigns exist in the database
         const allCampaigns = await this.campaignModel.find({
@@ -479,43 +481,38 @@ export default class CampaignService {
           console.log(`  - Campaign Index: ${c.campaignIndex}, Mint: ${c.mint || 'None'}`);
         });
         
-        // Also check if there are any campaigns with the event campaign index (1-based)
-        const eventCampaignIndex = Number(data.campaignIndex.toString());
-        const campaignWithEventIndex = await this.campaignModel.findOne({
-          creator: data.creator.toString(),
-          campaignIndex: eventCampaignIndex, // Check with 1-based index
-        });
-        
-        if (campaignWithEventIndex) {
-          console.log(`Found campaign with event index (1-based): ${eventCampaignIndex}`);
-          console.log(`This suggests the database might be storing 1-based indices instead of 0-based`);
-        }
-        
         return;
       }
     
-      await this.addTokenPumpProcessModel.findOneAndUpdate(
-        {
-          creator: data.creator.toString(),
-          campaignIndex: actualCampaignIndex,
-        },
-        {
-          status: AddTokenProcessStatus.COMPLETED,
-          mint: data.mint.toString(),
-        },
-        { upsert: true, new: true, session: session }
-      );
-  
-      await this.campaignModel.findOneAndUpdate(
-        {
-          creator: data.creator.toString(),
-          campaignIndex: actualCampaignIndex,
-        },
-        {
-          mint: data.mint.toString(),
-        },
-        { upsert: true, new: true, session: session }
-      );
+      // Update both campaign and process status atomically to avoid race conditions
+      await Promise.all([
+        // Update campaign with mint
+        this.campaignModel.findOneAndUpdate(
+          {
+            creator: data.creator.toString(),
+            campaignIndex: campaignIndex,
+          },
+          {
+            mint: data.mint.toString(),
+          },
+          { upsert: true, new: true, session: session }
+        ),
+        // Update process status to COMPLETED
+        this.addTokenPumpProcessModel.findOneAndUpdate(
+          {
+            creator: data.creator.toString(),
+            campaignIndex: campaignIndex,
+          },
+          {
+            status: AddTokenProcessStatus.COMPLETED,
+            mint: data.mint.toString(),
+          },
+          { upsert: true, new: true, session: session }
+        )
+      ]);
+
+      console.log(`Campaign ${campaignIndex} token created and marked as COMPLETED with mint: ${data.mint.toString()}`);
+      
     } catch (error) {
       console.error('Error handling created and bought token event:', error);
       throw error;
@@ -524,31 +521,31 @@ export default class CampaignService {
 
   async handleSoldCampaignTokenEvent(data: any, transactionSession: any) {
     try {
-      // Convert 1-based event index to 0-based database index
-      const actualCampaignIndex = Number(data.campaignIndex.toString()) - 1;
+      // Parse campaign index from hex string - database uses 1-based indexing
+      const campaignIndex = parseInt(data.campaignIndex.toString(), 16);
       
       // Delete from all relevant schemas
       await Promise.all([
         // Delete from campaign model
         this.campaignModel.deleteOne({
           creator: data.creator.toString(),
-          campaignIndex: actualCampaignIndex
+          campaignIndex: campaignIndex
         }, { session: transactionSession }),
   
         // Delete from token process model 
         this.addTokenPumpProcessModel.deleteOne({
           creator: data.creator.toString(),
-          campaignIndex: actualCampaignIndex
+          campaignIndex: campaignIndex
         }, { session: transactionSession }),
   
         // Delete from sell progress model
         this.sellProgressModel.deleteOne({
           creator: data.creator.toString(),
-          campaignIndex: actualCampaignIndex
+          campaignIndex: campaignIndex
         }, { session: transactionSession })
       ]);
   
-      console.log(`Deleted campaign ${actualCampaignIndex} after SellTokenEvent`);
+      console.log(`Deleted campaign ${campaignIndex} after SellTokenEvent`);
   
     } catch (error) {
       console.error('Error handling sell token event:', error);
@@ -630,12 +627,12 @@ export default class CampaignService {
 
   async handleClaimableTokenAmountUpdatedEvent(data: any, transactionSession: any) {
     try {
-      // Convert 1-based event index to 0-based database index
-      const actualCampaignIndex = Number(data.campaignIndex.toString()) - 1;
+      // Parse campaign index from hex string - database uses 1-based indexing
+      const campaignIndex = parseInt(data.campaignIndex.toString(), 16);
       
       const campaign = await this.campaignModel.findOne({
         creator: data.creator.toString(),
-        campaignIndex: actualCampaignIndex,
+        campaignIndex: campaignIndex,
       })
 
       if (!campaign) {
@@ -647,7 +644,7 @@ export default class CampaignService {
 
       const sellProgress = await this.sellProgressModel.findOne({
         creator: data.creator.toString(),
-        campaignIndex: actualCampaignIndex,
+        campaignIndex: campaignIndex,
       });
   
       if (!sellProgress) {
@@ -658,7 +655,7 @@ export default class CampaignService {
       await this.sellProgressModel.findOneAndUpdate(
         {
           creator: data.creator.toString(),
-          campaignIndex: actualCampaignIndex,
+          campaignIndex: campaignIndex,
         },
         {
           claimable_amount: Number(ethers.utils.formatUnits(data.claimable_amount.toString(), 9)),
@@ -675,12 +672,12 @@ export default class CampaignService {
 
   async handleClaimedTokenEvent(data: any, transactionSession: any) {
     try {
-      // Convert 1-based event index to 0-based database index
-      const actualCampaignIndex = Number(data.campaignIndex.toString()) - 1;
+      // Parse campaign index from hex string - database uses 1-based indexing
+      const campaignIndex = parseInt(data.campaignIndex.toString(), 16);
       
       const sellProgress = await this.sellProgressModel.findOne({
         creator: data.creator.toString(),
-        campaignIndex: actualCampaignIndex
+        campaignIndex: campaignIndex
       });
 
       if (!sellProgress) {
@@ -688,7 +685,7 @@ export default class CampaignService {
       }
 
       await this.sellProgressModel.findOneAndUpdate(
-        {creator: data.creator.toString(), campaignIndex: actualCampaignIndex},
+        {creator: data.creator.toString(), campaignIndex: campaignIndex},
         {
           claimable_amount: Number(data.amount.toString())
         },
@@ -720,25 +717,24 @@ export default class CampaignService {
       }
       
       // Convert campaignIndex and donatedAmount to proper numbers
-      // IMPORTANT: Events use 1-based indexing, database uses 0-based indexing
-      const eventCampaignIndex = Number(data.campaignIndex.toString());
-      const actualCampaignIndex = eventCampaignIndex - 1;
+      // Parse campaign index from hex string - database uses 1-based indexing
+      const campaignIndex = parseInt(data.campaignIndex.toString(), 16);
       const donatedAmount = Number(data.donatedAmount.toString());
       const timestamp = data.timestamp.toString();
       
-      console.log(`Processing donation of ${donatedAmount / 1e9} SOL to campaign event index ${eventCampaignIndex} (DB index ${actualCampaignIndex})`);
+      console.log(`Processing donation of ${donatedAmount / 1e9} SOL to campaign index ${campaignIndex}`);
       
-      // Find the campaign by actualCampaignIndex
-      const campaign = await this.campaignModel.findOne({ campaignIndex: actualCampaignIndex });
+      // Find the campaign by campaignIndex
+      const campaign = await this.campaignModel.findOne({ campaignIndex: campaignIndex });
       
       if (!campaign) {
-        console.log(`Campaign with index ${actualCampaignIndex} not found`);
+        console.log(`Campaign with index ${campaignIndex} not found`);
         return;
       }
       
       // Update the campaign's totalFundRaised field
       const updatedCampaign = await this.campaignModel.findOneAndUpdate(
-        { campaignIndex: actualCampaignIndex },
+        { campaignIndex: campaignIndex },
         { 
           $inc: { totalFundRaised: donatedAmount },
           $set: { lastDonationTimestamp: timestamp }
@@ -746,7 +742,7 @@ export default class CampaignService {
         { new: true, session }
       );
       
-      console.log(`Updated campaign ${actualCampaignIndex} - new total fund raised: ${updatedCampaign.totalFundRaised / 1e9} SOL`);
+      console.log(`Updated campaign ${campaignIndex} - new total fund raised: ${updatedCampaign.totalFundRaised / 1e9} SOL`);
       
       // Check and update campaign status after donation
       await this.checkAndUpdateCampaignStatus(updatedCampaign, session);

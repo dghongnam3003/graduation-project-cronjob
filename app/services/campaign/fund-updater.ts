@@ -133,8 +133,15 @@ export default class CampaignFundService {
         campaignIndex: campaign.campaignIndex,
       })
 
-      if (processRecord?.status === AddTokenProcessStatus.COMPLETED) {
-        console.log(`Skipping COMPLETED campaign ${campaign.campaignIndex}`);
+      // Also check if campaign has mint
+      const campaignWithMint = await this.campaignModel.findOne({
+        creator: campaign.creator,
+        campaignIndex: campaign.campaignIndex,
+        mint: { $exists: true, $ne: null }
+      });
+
+      if (processRecord?.status === AddTokenProcessStatus.COMPLETED || campaignWithMint?.mint) {
+        console.log(`Skipping COMPLETED campaign or campaign with mint ${campaign.campaignIndex}`);
         continue;
       }
 
@@ -148,16 +155,57 @@ export default class CampaignFundService {
       );
   
       const campaignInfo = await this.connection.getAccountInfo(campaignPDA);
-      if (!campaignInfo) continue;
+      if (!campaignInfo) {
+        console.log(`Campaign PDA ${campaignPDA.toString()} not found on-chain for campaign ${campaign.campaignIndex}`);
+        
+        // Double-check if campaign was recently completed before deletion
+        const latestProcessRecord = await this.addTokenPumpProcessModel.findOne({
+          creator: campaign.creator,
+          campaignIndex: campaign.campaignIndex,
+        });
+
+        const latestCampaign = await this.campaignModel.findOne({
+          creator: campaign.creator,
+          campaignIndex: campaign.campaignIndex,
+        });
+
+        // Only delete if truly not completed and no mint
+        if (latestProcessRecord?.status !== AddTokenProcessStatus.COMPLETED && 
+            !latestCampaign?.mint &&
+            latestCampaign) {
+          console.log(`Deleting campaign ${campaign.campaignIndex} - PDA not found and not completed`);
+          await this.campaignModel.deleteOne({ _id: campaign._id }, { session });
+        } else {
+          console.log(`Preserving campaign ${campaign.campaignIndex} - recently completed or has mint`);
+        }
+        continue;
+      }
   
       const minimumRentExemption = await this.connection.getMinimumBalanceForRentExemption(campaignInfo.data.length);
       const currentFunds = campaignInfo.lamports - minimumRentExemption;
   
-      // Delete if funds are now 0
-      if (currentFunds === 0) {
+      // Double-check before deleting campaigns with zero funds
+      const latestProcessRecord = await this.addTokenPumpProcessModel.findOne({
+        creator: campaign.creator,
+        campaignIndex: campaign.campaignIndex,
+      });
+
+      const latestCampaign = await this.campaignModel.findOne({
+        creator: campaign.creator,
+        campaignIndex: campaign.campaignIndex,
+      });
+
+      // Only delete if funds are 0 AND not completed AND no mint
+      if (currentFunds === 0 && 
+          latestProcessRecord?.status !== AddTokenProcessStatus.COMPLETED &&
+          !latestCampaign?.mint &&
+          latestCampaign) {
+        console.log(`Deleting campaign ${campaign.campaignIndex} - zero funds and not completed`);
         await this.campaignModel.deleteOne({ 
           _id: campaign._id 
         }, { session });
+      } else if (currentFunds === 0) {
+        console.log(`Preserving campaign ${campaign.campaignIndex} with zero funds - completed or has mint`);
       }
     }
   }
@@ -207,42 +255,72 @@ export default class CampaignFundService {
     try {
       const campaigns = await this.campaignModel.find();
       
-      for (const campaign of campaigns) {      // Check COMPLETED status first
-      const processRecord = await this.addTokenPumpProcessModel.findOne({
-        creator: campaign.creator,
-        campaignIndex: campaign.campaignIndex,
-      });
+      for (const campaign of campaigns) {
+        // Check COMPLETED status first - use fresh query to avoid race conditions
+        const processRecord = await this.addTokenPumpProcessModel.findOne({
+          creator: campaign.creator,
+          campaignIndex: campaign.campaignIndex,
+        });
 
-      if (processRecord?.status === AddTokenProcessStatus.COMPLETED) {
-        console.log(`Campaign ${campaign.campaignIndex} is COMPLETED - skipping deletion`);
-        continue;
-      }
+        // Also check if campaign has mint (indicates token created)
+        const campaignWithMint = await this.campaignModel.findOne({
+          creator: campaign.creator,
+          campaignIndex: campaign.campaignIndex,
+          mint: { $exists: true, $ne: null }
+        });
 
-      // Ensure consistent PDA derivation
-      const campaignIndexBN = new BN(campaign.campaignIndex);
-      const [campaignPDA] = PublicKey.findProgramAddressSync(
-        [
-          Buffer.from("campaign"), 
-          new PublicKey(campaign.creator).toBuffer(), 
-          Buffer.from(campaignIndexBN.toArray("le", 8))
-        ],
-        new PublicKey(this.PROGRAM_ID)
-      );
+        if (processRecord?.status === AddTokenProcessStatus.COMPLETED || campaignWithMint?.mint) {
+          console.log(`Campaign ${campaign.campaignIndex} is COMPLETED or has mint - skipping deletion`);
+          continue;
+        }
+
+        // Ensure consistent PDA derivation
+        const campaignIndexBN = new BN(campaign.campaignIndex);
+        const [campaignPDA] = PublicKey.findProgramAddressSync(
+          [
+            Buffer.from("campaign"), 
+            new PublicKey(campaign.creator).toBuffer(), 
+            Buffer.from(campaignIndexBN.toArray("le", 8))
+          ],
+          new PublicKey(this.PROGRAM_ID)
+        );
       const campaignInfo = await this.connection.getAccountInfo(campaignPDA);
       if (!campaignInfo) continue;
 
         const minimumRentExemption = await this.connection.getMinimumBalanceForRentExemption(campaignInfo.data.length);
         const currentFunds = campaignInfo.lamports - minimumRentExemption;
 
-        // Only delete if not COMPLETED and zero funds
-        if (currentFunds === 0 && processRecord?.status !== AddTokenProcessStatus.COMPLETED) {
+        // Double-check campaign status before deletion to avoid race conditions
+        const latestProcessRecord = await this.addTokenPumpProcessModel.findOne({
+          creator: campaign.creator,
+          campaignIndex: campaign.campaignIndex,
+        });
+
+        const latestCampaign = await this.campaignModel.findOne({
+          creator: campaign.creator,
+          campaignIndex: campaign.campaignIndex,
+        });
+
+        // Only delete if:
+        // 1. Current funds are 0
+        // 2. NOT COMPLETED status
+        // 3. No mint assigned (token not created)
+        // 4. Campaign still exists in database
+        if (currentFunds === 0 && 
+            latestProcessRecord?.status !== AddTokenProcessStatus.COMPLETED && 
+            !latestCampaign?.mint &&
+            latestCampaign) {
+          console.log(`Deleting campaign ${campaign.campaignIndex} - zero funds and not completed`);
           await this.campaignModel.deleteOne({ _id: campaign._id }, { session });
         } else {
-          await this.campaignModel.findOneAndUpdate(
-            { _id: campaign._id },
-            { totalFundRaised: currentFunds },
-            { session }
-          );
+          // Update funds only if campaign still exists and not being processed
+          if (latestCampaign) {
+            await this.campaignModel.findOneAndUpdate(
+              { _id: campaign._id },
+              { totalFundRaised: currentFunds },
+              { session }
+            );
+          }
         }
       }
     } catch (error) {

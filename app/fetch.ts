@@ -2,6 +2,7 @@ import db from "./db/db";
 import CampaignFundService from "./services/campaign/fund-updater";
 import CampaignService from "./services/campaign/campaign-service";
 import { SetupInterface } from "./interfaces/setup.interface";
+// import db from "./db/db";
 require("dotenv").config();
 
 async function runFundUpdateJob() {
@@ -45,7 +46,11 @@ async function syncHistory() {
 
   // Start token creation first to handle PENDING campaigns
   mainLoop();
-  fundLoop();
+  
+  // Add 5 second delay before starting fund update to reduce race conditions
+  setTimeout(() => {
+    fundLoop();
+  }, 5000);
 }
 
 (async () => {
