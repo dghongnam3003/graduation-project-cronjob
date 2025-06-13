@@ -302,9 +302,8 @@ export default class CampaignService {
         if (event.name === CampaignEvent.claimedFundEvent) {
           await this.handleClaimedFundEvent(event.data, transactionSession);
         }
-        if (event.name === CampaignEvent.donatedFundEvent) {
-          await this.handleDonatedFundEvent(event.data, transactionSession);
-        }
+        // Note: donatedFundEvent is handled by fund-updater service directly from blockchain
+        // to avoid write conflicts between event-based and blockchain-based updates
       }
       await newTransaction.save({ session: transactionSession });
       await transactionSession.commitTransaction();
@@ -455,8 +454,13 @@ export default class CampaignService {
   
   async handleCreatedCampaignTokenEvent(data: any, session) {
     try {
+      // Debug: Log the received data structure
+      console.log('CreatedCampaignTokenEvent data:', JSON.stringify(data, null, 2));
+      
       // Convert 1-based event index to 0-based database index
       const actualCampaignIndex = Number(data.campaignIndex.toString()) - 1;
+      
+      console.log(`Searching for campaign - creator: ${data.creator.toString()}, actualCampaignIndex: ${actualCampaignIndex}`);
       
       const campaign = await this.campaignModel.findOne({
         creator: data.creator.toString(),
@@ -464,7 +468,29 @@ export default class CampaignService {
       });
     
       if (!campaign) {
-        console.log('Campaign not found');
+        console.log(`Campaign not found for creator: ${data.creator.toString()}, campaignIndex: ${actualCampaignIndex}`);
+        
+        // Debug: Let's see what campaigns exist in the database
+        const allCampaigns = await this.campaignModel.find({
+          creator: data.creator.toString()
+        }).limit(10);
+        console.log(`Found ${allCampaigns.length} campaigns for creator ${data.creator.toString()}:`);
+        allCampaigns.forEach(c => {
+          console.log(`  - Campaign Index: ${c.campaignIndex}, Mint: ${c.mint || 'None'}`);
+        });
+        
+        // Also check if there are any campaigns with the event campaign index (1-based)
+        const eventCampaignIndex = Number(data.campaignIndex.toString());
+        const campaignWithEventIndex = await this.campaignModel.findOne({
+          creator: data.creator.toString(),
+          campaignIndex: eventCampaignIndex, // Check with 1-based index
+        });
+        
+        if (campaignWithEventIndex) {
+          console.log(`Found campaign with event index (1-based): ${eventCampaignIndex}`);
+          console.log(`This suggests the database might be storing 1-based indices instead of 0-based`);
+        }
+        
         return;
       }
     
