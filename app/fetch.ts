@@ -91,12 +91,11 @@ async function syncHistory() {
     };
     await CampaignService.getInstance().setup(config);
     await CampaignFundService.getInstance().setup(config);
-
-    // Start token creation first to handle PENDING campaigns
-
-    tokenLoop();
+    await TokenCreatorService.getInstance().setup(config);    
 
     mainLoop();
+
+    tokenLoop();
     
     // Add 5 second delay before starting fund update to reduce race conditions
     setTimeout(() => {
