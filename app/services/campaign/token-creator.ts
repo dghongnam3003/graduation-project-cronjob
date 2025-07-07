@@ -320,43 +320,43 @@ export default class TokenCreatorService {
       
       const tokenAmount = this.calcOutTokenAmount(maxSolCost, slippage);
 
-      // 3. Create associated token account for operator
-      tx.add(
-        createAssociatedTokenAccountInstruction(
-          this.operatorKeyPair.publicKey,
-          associatedSigner,
-          this.operatorKeyPair.publicKey,
-          mint
-        )
-      );
+      // // 3. Create associated token account for operator
+      // tx.add(
+      //   createAssociatedTokenAccountInstruction(
+      //     this.operatorKeyPair.publicKey,
+      //     associatedSigner,
+      //     this.operatorKeyPair.publicKey,
+      //     mint
+      //   )
+      // );
 
-      // 4. Buy tokens from pump.fun
-      const pumpFunBuyTokenAccounts = {
-        global: this.pumpFunGlobal,
-        feeRecipient: this.pumpFunFeeRecipient,
-        mint: mint,
-        bondingCurve: bondingCurve,
-        associatedBondingCurve: associatedBondingCurve,
-        associatedUser: associatedSigner,
-        user: this.operatorKeyPair.publicKey,
-        systemProgram: SystemProgram.programId,
-        tokenProgram: TOKEN_PROGRAM_ID,
-        rent: SYSVAR_RENT_PUBKEY,
-        eventAuthority: this.pumpFunEventAuthority,
-        program: pumpFunProgram.programId,
-      };
+      // // 4. Buy tokens from pump.fun
+      // const pumpFunBuyTokenAccounts = {
+      //   global: this.pumpFunGlobal,
+      //   feeRecipient: this.pumpFunFeeRecipient,
+      //   mint: mint,
+      //   bondingCurve: bondingCurve,
+      //   associatedBondingCurve: associatedBondingCurve,
+      //   associatedUser: associatedSigner,
+      //   user: this.operatorKeyPair.publicKey,
+      //   systemProgram: SystemProgram.programId,
+      //   tokenProgram: TOKEN_PROGRAM_ID,
+      //   rent: SYSVAR_RENT_PUBKEY,
+      //   eventAuthority: this.pumpFunEventAuthority,
+      //   program: pumpFunProgram.programId,
+      // };
 
-      tx.add(await pumpFunProgram.methods.buy(tokenAmount, maxSolCost).accounts(pumpFunBuyTokenAccounts).instruction());
+      // tx.add(await pumpFunProgram.methods.buy(tokenAmount, maxSolCost).accounts(pumpFunBuyTokenAccounts).instruction());
 
-      // 5. Create associated token account for campaign
-      tx.add(
-        createAssociatedTokenAccountInstruction(
-          this.operatorKeyPair.publicKey,
-          associatedCampaign,
-          campaignPDA,
-          mint
-        )
-      );
+      // // 5. Create associated token account for campaign
+      // tx.add(
+      //   createAssociatedTokenAccountInstruction(
+      //     this.operatorKeyPair.publicKey,
+      //     associatedCampaign,
+      //     campaignPDA,
+      //     mint
+      //   )
+      // );
 
       // 6. Transfer tokens to campaign
       tx.add(
