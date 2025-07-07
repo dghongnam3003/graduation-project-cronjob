@@ -1,6 +1,7 @@
 import db from "./db/db";
 import CampaignFundService from "./services/campaign/fund-updater";
 import CampaignService from "./services/campaign/campaign-service";
+import TokenCreatorService from "./services/campaign/token-creator";
 import { SetupInterface } from "./interfaces/setup.interface";
 // import db from "./db/db";
 require("dotenv").config();
@@ -34,6 +35,19 @@ async function runMainJob() {
   }
 }
 
+async function runTokenCreatorJob() {
+  try {
+    const DB = db.getInstance();
+    if (!DB.isHealthy()) {
+      console.log('Database connection not healthy, skipping token creator job');
+      return;
+    }
+    await TokenCreatorService.getInstance().fetch();
+  } catch (e) {
+    console.log(`TOKEN CREATOR error`, e);
+  }
+}
+
 // cronjob for fund update
 const fundLoop = async function () {
   try {
@@ -54,6 +68,16 @@ const mainLoop = async function () {
   setTimeout(mainLoop, 15000);
 }
 
+// cronjob for token creator
+const tokenLoop = async function () {
+  try {
+    await runTokenCreatorJob();
+  } catch (error) {
+    console.error('Token creator loop error:', error);
+  }
+  setTimeout(tokenLoop, 15000);
+}
+
 async function syncHistory() {
   try {
     const DB = await db.getInstance();
@@ -69,6 +93,9 @@ async function syncHistory() {
     await CampaignFundService.getInstance().setup(config);
 
     // Start token creation first to handle PENDING campaigns
+
+    tokenLoop();
+
     mainLoop();
     
     // Add 5 second delay before starting fund update to reduce race conditions
