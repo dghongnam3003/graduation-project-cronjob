@@ -57,22 +57,30 @@ export default class TokenCreatorService {
   private pumpFunProgramId = new PublicKey("6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P");
 
   public async setup(setup: SetupInterface) {
-    this.db = setup._db;
-    this.rpc = setup.rpc;
-    this.devnet = setup.devnet;
+    console.log('TokenCreatorService setup called');
+    try {
+      this.db = setup._db;
+      this.rpc = setup.rpc;
+      this.devnet = setup.devnet;
 
-    // Setup pump.fun constants based on network
-    this.pumpFunGlobal = new PublicKey("4wTV1YmiEkRvAtNtsSGPtUrqRYQMe5SKy2uB4Jjaxnjf");
-    this.pumpFunFeeRecipient = this.devnet
-      ? new PublicKey("68yFSZxzLWJXkxxRGydZ63C6mHx1NLEDWmwN9Lb5yySg")
-      : new PublicKey("CebN5WGQ4jvEPvsVU4EoHEpgzq1VV7AbicfhtW4xC9iM");
+      // Setup pump.fun constants based on network
+      this.pumpFunGlobal = new PublicKey("4wTV1YmiEkRvAtNtsSGPtUrqRYQMe5SKy2uB4Jjaxnjf");
+      this.pumpFunFeeRecipient = this.devnet
+        ? new PublicKey("68yFSZxzLWJXkxxRGydZ63C6mHx1NLEDWmwN9Lb5yySg")
+        : new PublicKey("CebN5WGQ4jvEPvsVU4EoHEpgzq1VV7AbicfhtW4xC9iM");
 
-    // Setup connection
-    this.connection = new Connection(setup.rpc);
-    // Setup db
-    this.dbConnection = await this.db.getConnection();
-    this.campaignModel = CampaignSchema.getModel();
-    this.addTokenPumpProcessModel = AddTokenPumpProcessSchema.getModel();
+      // Setup connection
+      this.connection = new Connection(setup.rpc);
+      // Setup db
+      this.dbConnection = await this.db.getConnection();
+      this.campaignModel = CampaignSchema.getModel();
+      this.addTokenPumpProcessModel = AddTokenPumpProcessSchema.getModel();
+      
+      console.log('TokenCreatorService setup completed successfully');
+    } catch (error) {
+      console.error('TokenCreatorService setup error:', error);
+      throw error;
+    }
   }
 
   public static getInstance(): TokenCreatorService {
@@ -84,7 +92,11 @@ export default class TokenCreatorService {
 
   // Main fetch method - called from fetch.ts
   async fetch() {
-    if (this.isSyncing) return;
+    console.log("TokenCreatorService fetch called, isSyncing:", this.isSyncing);
+    if (this.isSyncing) {
+      console.log("TokenCreatorService already syncing, skipping");
+      return;
+    }
     this.isSyncing = true;
 
     const MAX_RETRIES = 3;
@@ -132,6 +144,15 @@ export default class TokenCreatorService {
 
   async processPendingCampaigns(session) {
     try {
+      // Debug: Check total records in addTokenPumpProcessModel
+      const totalRecords = await this.addTokenPumpProcessModel.countDocuments({});
+      console.log(`Total token process records: ${totalRecords}`);
+      
+      const pendingCount = await this.addTokenPumpProcessModel.countDocuments({
+        status: AddTokenProcessStatus.PENDING
+      });
+      console.log(`Pending token process records: ${pendingCount}`);
+      
       // Find campaigns with PENDING status
       const pendingProcesses = await this.addTokenPumpProcessModel.find({
         status: AddTokenProcessStatus.PENDING

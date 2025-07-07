@@ -37,11 +37,13 @@ async function runMainJob() {
 
 async function runTokenCreatorJob() {
   try {
+    console.log('runTokenCreatorJob called');
     const DB = db.getInstance();
     if (!DB.isHealthy()) {
       console.log('Database connection not healthy, skipping token creator job');
       return;
     }
+    console.log('Database healthy, calling TokenCreatorService.fetch()');
     await TokenCreatorService.getInstance().fetch();
   } catch (e) {
     console.log(`TOKEN CREATOR error`, e);
@@ -71,6 +73,7 @@ const mainLoop = async function () {
 // cronjob for token creator
 const tokenLoop = async function () {
   try {
+    console.log('tokenLoop iteration starting');
     await runTokenCreatorJob();
   } catch (error) {
     console.error('Token creator loop error:', error);
@@ -93,8 +96,10 @@ async function syncHistory() {
     await CampaignFundService.getInstance().setup(config);
     await TokenCreatorService.getInstance().setup(config);    
 
+    console.log('Starting mainLoop...');
     mainLoop();
 
+    console.log('Starting tokenLoop...');
     tokenLoop();
     
     // Add 5 second delay before starting fund update to reduce race conditions
