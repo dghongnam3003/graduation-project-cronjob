@@ -146,9 +146,7 @@ export default class CampaignFundService {
       }
 
       // Get current on-chain state - ensure consistent PDA derivation
-      // Smart contract uses 0-based indexing for PDA (subtract 1 from database index)
-      const pdaCampaignIndex = campaign.campaignIndex - 1;
-      const campaignIndexBN = new BN(pdaCampaignIndex);
+      const campaignIndexBN = new BN(campaign.campaignIndex);
       const [campaignPDA] = PublicKey.findProgramAddressSync(
         [Buffer.from("campaign"), 
          new PublicKey(campaign.creator).toBuffer(), 
@@ -225,9 +223,7 @@ export default class CampaignFundService {
     }
 
     // Ensure consistent PDA derivation
-    // Smart contract uses 0-based indexing for PDA (subtract 1 from database index)
-    const pdaCampaignIndex = campaign.campaignIndex - 1;
-    const campaignIndexBN = new BN(pdaCampaignIndex);
+    const campaignIndexBN = new BN(campaign.campaignIndex);
     const [campaignPDA] = PublicKey.findProgramAddressSync(
       [
         Buffer.from("campaign"),
@@ -279,9 +275,7 @@ export default class CampaignFundService {
         }
 
         // Ensure consistent PDA derivation
-        // Smart contract uses 0-based indexing for PDA (subtract 1 from database index)
-        const pdaCampaignIndex = campaign.campaignIndex - 1;
-        const campaignIndexBN = new BN(pdaCampaignIndex);
+        const campaignIndexBN = new BN(campaign.campaignIndex);
         const [campaignPDA] = PublicKey.findProgramAddressSync(
           [
             Buffer.from("campaign"), 

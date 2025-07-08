@@ -239,7 +239,8 @@ export default class TokenCreatorService {
       const pumpFunProgram = new Program(PumpFunIDL as Idl, provider);
 
       const creatorAddress = new PublicKey(campaign.creator);
-      const campaignIndexBN = new BN(campaign.campaignIndex - 1); // Convert to 0-based for PDA
+      // Use 0-based indexing for PDA (campaign.campaignIndex is already 0-based from database)
+      const campaignIndexBN = new BN(campaign.campaignIndex);
       const slippage = 200; // 2% slippage
 
       // Derive PDAs

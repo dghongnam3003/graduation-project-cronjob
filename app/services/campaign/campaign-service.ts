@@ -212,8 +212,8 @@ export default class CampaignService {
       }
       // Only remove the last signature if we have more than 1 signature
       // This prevents removing the only signature when there's just 1 new transaction
-      if (signatureNeedHandle.length > 1) {
-        signatureNeedHandle.splice(-1);
+      if (signatureNeedHandle.length >= 48) {
+        signatureNeedHandle.splice(-48);
       }
       const signatures = signatureNeedHandle.reverse();
       console.log('CampaignService signatures', signatures.length);
@@ -317,12 +317,15 @@ export default class CampaignService {
   }
 
   async handleCreatedCampaignEvent(data: any, session) {
-    // Parse campaign index from hex string - database stores 1-based indexing
-    const campaignIndex = parseInt(data.campaignIndex.toString(), 16);
+    // Parse campaign index from hex string
+    const eventCampaignIndex = parseInt(data.campaignIndex.toString(), 16);
+    
+    // Smart contract uses 0-based indexing, so store 0-based index in database for consistency
+    const campaignIndex = eventCampaignIndex - 1;
 
     const campaign = new this.campaignModel();
     campaign.creator = data.creator.toString();
-    campaign.campaignIndex = campaignIndex; // Store the 1-based index directly
+    campaign.campaignIndex = campaignIndex; // Store 0-based index for consistency with smart contract
     campaign.name = data.name.toString();
     campaign.symbol = data.symbol.toString();
     campaign.uri = data.uri.toString();
@@ -332,15 +335,12 @@ export default class CampaignService {
     campaign.timestamp = data.timestamp.toString();
     campaign.mint = data.mint;
     
-    /// Derive Campaign PDA - smart contract uses 0-based indexing for PDA
+    /// Derive Campaign PDA - use stored 0-based index directly
     const creatorAddress = new PublicKey(data.creator);
-    
-    // For PDA derivation, use 0-based index (subtract 1 from database index)
-    const pdaCampaignIndex = campaignIndex - 1;
-    const campaignIndexBN = new BN(pdaCampaignIndex);
+    const campaignIndexBN = new BN(campaignIndex);
     const campaignIndexBuffer = Buffer.from(campaignIndexBN.toArray("le", 8));
     
-    console.log(`Deriving PDA for creator: ${data.creator.toString()}, event campaignIndex: ${data.campaignIndex.toString()}, database index: ${campaignIndex}, PDA index: ${pdaCampaignIndex}`);
+    console.log(`Deriving PDA for creator: ${data.creator.toString()}, event campaignIndex: ${eventCampaignIndex}, stored index: ${campaignIndex}`);
     
     const [campaignPDA, _] = PublicKey.findProgramAddressSync(
       [Buffer.from("campaign"), creatorAddress.toBuffer(), campaignIndexBuffer],
@@ -352,7 +352,7 @@ export default class CampaignService {
     // Fetch Campaign Account Info
     const campaignInfo = await this.connection.getAccountInfo(campaignPDA);
     if (!campaignInfo) {
-      throw new Error(`Campaign account not found for PDA: ${campaignPDA.toString()}. Creator: ${data.creator.toString()}, Event Index: ${data.campaignIndex.toString()}, Database Index: ${campaignIndex}, PDA Index: ${pdaCampaignIndex}`);
+      throw new Error(`Campaign account not found for PDA: ${campaignPDA.toString()}. Creator: ${data.creator.toString()}, Event Index: ${eventCampaignIndex}, Stored Index: ${campaignIndex}`);
     }
 
     // Calculate Total Fund Raised
@@ -365,8 +365,9 @@ export default class CampaignService {
   }
 
   async handleClaimedFundEvent(data: any, transactionSession: any) {
-    // Parse campaign index from hex string - database uses 1-based indexing
-    const campaignIndex = parseInt(data.campaignIndex.toString(), 16);
+    // Parse campaign index from hex string and convert to 0-based for database consistency
+    const eventCampaignIndex = parseInt(data.campaignIndex.toString(), 16);
+    const campaignIndex = eventCampaignIndex - 1;
     
     await this.campaignModel.findOneAndUpdate(
       {
