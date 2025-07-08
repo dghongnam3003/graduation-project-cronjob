@@ -360,14 +360,14 @@ export default class TokenCreatorService {
       // );
 
       // 6. Transfer tokens to campaign
-      tx.add(
-        createTransferInstruction(
-          associatedSigner,
-          associatedCampaign,
-          this.operatorKeyPair.publicKey,
-          BigInt(tokenAmount.toString())
-        )
-      );
+      // tx.add(
+      //   createTransferInstruction(
+      //     associatedSigner,
+      //     associatedCampaign,
+      //     this.operatorKeyPair.publicKey,
+      //     BigInt(tokenAmount.toString())
+      //   )
+      // );
 
       // Prepare and send transaction
       tx.recentBlockhash = (await this.connection.getLatestBlockhash()).blockhash;
